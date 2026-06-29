@@ -1,57 +1,74 @@
-# Sample Hardhat 3 Project (`node:test` and `viem`)
+# Commit-Reveal Bounty System
 
-This project showcases a Hardhat 3 project using the native Node.js test runner (`node:test`) and the `viem` library for Ethereum interactions.
+## What Problem Does This Solve?
 
-To learn more about Hardhat 3, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3](https://hardhat.org/hardhat3-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+In a normal bounty system, answers are public on-chain. Anyone can read your answer and submit a slightly improved version before judging. That's unfair.
 
-## Project Overview
+This system uses a commit-reveal pattern to keep answers secret until after the submission deadline.
 
-This example project includes:
+---
 
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using [`node:test`](nodejs.org/api/test.html), the new Node.js native test runner, and [`viem`](https://viem.sh/).
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
+## The Lifecycle (Step by Step)
 
-## Usage
+1. SETUP — Owner creates bounty + puts ETH reward → createBounty()
+2. COMMIT — Participants submit a hash of their answer → submitCommitment()
+3. REVEAL — After commit deadline, everyone reveals real answer → revealAnswer()
+4. JUDGE — AI reads all answers and picks winner → judgeAll()
+5. FINALIZE — Winner gets paid → finalizeWinner()
 
-### Running Tests
+---
 
-To run all the tests in the project, execute the following command:
+## How Commitments Work
 
-```shell
-npx hardhat test
-```
+A commitment hash is like a fingerprint of your answer. You create it BEFORE submitting:
 
-You can also selectively run the Solidity or `node:test` tests:
+commitment = keccak256(answer + salt + yourAddress + bountyId)
 
-```shell
-npx hardhat test solidity
-npx hardhat test nodejs
-```
+- answer — your actual answer
+- salt — a random secret number you make up
+- yourAddress — prevents others from copying your hash
+- bountyId — ties it to a specific bounty
 
-### Make a deployment to Sepolia
+You submit ONLY the commitment hash. Nobody can reverse it to find your answer.
+When you reveal, the contract re-runs the same formula and checks it matches.
 
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
+---
 
-To run the deployment to a local chain:
+## Contract Functions
 
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
-```
+### createBounty(question, commitDeadline, revealDeadline)
+- Called by the bounty owner
+- Must send ETH with the call as the reward
 
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
+### submitCommitment(bountyId, commitment)
+- Called by participants during the commit phase
+- Only the hash is stored — answer is secret
 
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
+### revealAnswer(bountyId, answer, salt)
+- Called AFTER commit deadline, BEFORE reveal deadline
+- Contract verifies the hash matches
 
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
+### judgeAll(bountyId, llmInput)
+- Called by bounty owner after reveal deadline
+- Collects all valid revealed answers for AI judging
 
-```shell
-npx hardhat keystore set SEPOLIA_PRIVATE_KEY
-```
+### finalizeWinner(bountyId, winnerIndex)
+- Called by owner after AI returns winner
+- Pays out the reward to the winning address
 
-After setting the variable, you can run the deployment with the Sepolia network:
+---
 
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
-```
+## Architecture Note
+
+| What | Where stored | Visible? |
+|------|-------------|---------|
+| Commitment hash | On-chain | Yes — but unreadable |
+| Actual answer | Off-chain | No — until reveal |
+| Revealed answer | On-chain | Yes |
+| Winner + payment | On-chain | Yes |
+
+---
+
+## Reflection
+
+In a bounty system, the commitment hash and deadlines should be fully public so anyone can verify the process is fair. The actual answers must stay hidden during the submission phase to prevent copying — this is exactly what the commit-reveal pattern achieves. The winner selection should be decided by AI because it removes human bias and can process many answers consistently at once. However, humans should decide the bounty question, reward amount, and deadlines, since these require judgment about value and context. The payment execution should be on-chain and automatic once a winner is selected, removing the possibility of the owner refusing to pay. Dispute resolution should involve human review since edge cases require nuanced judgment. The ideal system combines AI objectivity for judging with human intent-setting and blockchain enforcement for payment.
